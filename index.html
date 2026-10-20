@@ -124,7 +124,7 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
     }
     var n=changed();
     bar.className="bar";
-    bar.innerHTML='<span>'+(busy?'發布中…':(n?'有 '+n+' 個時段尚未儲存':'點選各時段的狀態來調整'))+'</span><button class="g" type="button">取消</button><button type="button">儲存並發布</button>';
+    bar.innerHTML='<span>'+(busy?'發布中…':(n?'有 '+n+' 個時段尚未儲存':'點選各時段的狀態來調整'))+'</span><button class="g" type="button">取消</button><button type="button">'+(art?'儲存並發布':'下載更新檔')+'</button>';
     var bs=bar.querySelectorAll("button");
     bs[0].onclick=function(){draft=JSON.parse(JSON.stringify(saved));editing=false;render()};
     bs[1].onclick=save;
@@ -139,8 +139,19 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
     return "<!DOCTYPE html>\n<html lang=\"zh-Hant\"><head>"+head+"</head><body>"+body.innerHTML+
       "<script id=\"state\" type=\"application/json\">"+data+"<\/script><script id=\"app\">"+app+"<\/script></body></html>";
   }
+  function download(){
+    var blob=new Blob([buildHtml()],{type:"text/html;charset=utf-8"});
+    var a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);a.download="index.html";
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
+    saved=JSON.parse(JSON.stringify(draft));
+    $("sub").textContent="已下載 index.html，上傳到 GitHub 取代原檔即可更新網站";
+    render();
+  }
   function save(){
-    if(busy||!art||!changed())return;
+    if(busy||!changed())return;
+    if(!art)return download();
     busy=true;renderAdmin();
     art.publish(buildHtml()).then(function(){
       busy=false;
@@ -152,9 +163,15 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
       renderAdmin();
     });
   }
+  function checkHash(){
+    if(location.hash==="#admin"&&!isAdmin){isAdmin=true;editing=true;render()}
+  }
+  window.addEventListener("hashchange",checkHash);
   render();
+  checkHash();
   (async function(){
     try{
+      if(typeof claude==="undefined")return;
       var u=await claude.use("user");
       if(u&&u.canEdit()){
         art=await claude.use("artifact");

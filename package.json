@@ -1,0 +1,7 @@
+{
+  "name": "minniebday-1023",
+  "private": true,
+  "scripts": {
+    "dev": "npx --yes serve -l 3000 ."
+  }
+}

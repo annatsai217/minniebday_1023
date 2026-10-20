@@ -55,18 +55,20 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
   <div class="adm" id="adm"></div>
 </main>
 <div id="adminbar"></div>
-<script id="state" type="application/json">{"10/22":{"11:00-11:30":1,"13:00-13:30":1,"13:30-14:00":1,"17:30-18:00":1},"10/23":{"11:00-11:30":3,"11:30-12:00":3,"12:00-12:30":3,"12:30-13:00":3,"13:00-13:30":3,"13:30-14:00":1,"14:00-14:30":3,"14:30-15:00":1,"15:00-15:30":3,"15:30-16:00":3,"16:00-16:30":3,"16:30-17:00":3,"17:00-17:30":3,"17:30-18:00":3},"10/24":{"11:00-11:30":3,"11:30-12:00":3,"12:00-12:30":3,"12:30-13:00":3,"13:00-13:30":3,"13:30-14:00":3,"14:00-14:30":3,"14:30-15:00":1,"15:00-15:30":1,"16:00-16:30":3,"17:30-18:00":1},"10/25":{"11:00-11:30":1,"12:30-13:00":1,"13:00-13:30":1,"15:30-16:00":1,"17:30-18:00":1},"10/26":{"11:00-11:30":1,"11:30-12:00":1,"15:00-15:30":1}}</script>
 <script id="app">
 (function(){
   var SLOTS=["11:00-11:30","11:30-12:00","12:00-12:30","12:30-13:00","13:00-13:30","13:30-14:00","14:00-14:30","14:30-15:00","15:00-15:30","15:30-16:00","16:00-16:30","16:30-17:00","17:00-17:30","17:30-18:00"];
   var DAYS=[["10/22","四"],["10/23","五"],["10/24","六"],["10/25","日"],["10/26","一"]];
-  var saved=JSON.parse(document.getElementById("state").textContent);
-  var draft=JSON.parse(JSON.stringify(saved));
+  var LABELS=["無預約","空間舒服","擁擠","額滿"];
+  var PW_KEY="minnie_admin_pw";
+  var saved={},draft={},loaded=false;
   var cur=DAYS[0][0];
   var now=new Date(),key=(now.getMonth()+1)+"/"+now.getDate();
   DAYS.forEach(function(d){if(d[0]===key)cur=d[0]});
-  var isAdmin=false,editing=false,busy=false,art=null;
+  var isAdmin=false,editing=false,busy=false,pw=null;
+  var DEFAULT_SUB=document.getElementById("sub").textContent;
   var $=function(i){return document.getElementById(i)};
+  var clone=function(o){return JSON.parse(JSON.stringify(o))};
 
   function get(o,d,t){return (o[d]&&o[d][t])||0}
   function status(n){
@@ -74,17 +76,17 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
     if(n>=1)return["s-ok","空間舒服"];
     return["s-none","目前無人預約"];
   }
-  function changed(){
-    var c=0;
-    DAYS.forEach(function(d){SLOTS.forEach(function(t){if(get(draft,d[0],t)!==get(saved,d[0],t))c++})});
-    return c;
+  function diff(){
+    var out=[];
+    DAYS.forEach(function(d){SLOTS.forEach(function(t){var n=get(draft,d[0],t);if(n!==get(saved,d[0],t))out.push({day:d[0],slot:t,level:n})})});
+    return out;
   }
   function setN(d,t,n){
-    n=Math.max(0,Math.min(99,n));
     if(!draft[d])draft[d]={};
     if(n===0)delete draft[d][t];else draft[d][t]=n;
     render();
   }
+  function setSub(msg){$("sub").textContent=msg||DEFAULT_SUB}
   function render(){
     var tabs=$("tabs"),list=$("list");
     tabs.innerHTML="";list.innerHTML="";
@@ -101,12 +103,10 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
       row.className="slot"+(editing?" ed":"")+(editing&&n!==get(saved,cur,t)?" chg":"");
       var left='<div><div class="time">'+t+'</div></div>';
       if(editing){
-        row.innerHTML=left+'<div class="seg">'+["無預約","空間舒服","擁擠","額滿"].map(function(l,i){return '<button type="button" class="'+(i===n?'on':'')+'">'+l+'</button>'}).join("")+'</div>';
-        var bs=row.querySelectorAll("button");
-        [].forEach.call(bs,function(x,i){x.onclick=function(){setN(cur,t,i)}});
-        
+        row.innerHTML=left+'<div class="seg">'+LABELS.map(function(l,i){return '<button type="button" class="'+(i===n?'on':'')+'" aria-pressed="'+(i===n)+'">'+l+'</button>'}).join("")+'</div>';
+        [].forEach.call(row.querySelectorAll("button"),function(x,i){x.onclick=function(){setN(cur,t,i)}});
       }else{
-        row.innerHTML=left+'<div class="tag '+s[0]+'">'+s[1]+'</div>';
+        row.innerHTML=left+'<div class="tag '+(loaded?s[0]:'s-none')+'">'+(loaded?s[1]:"載入中…")+'</div>';
       }
       list.appendChild(row);
     });
@@ -117,68 +117,66 @@ main{max-width:520px;margin:calc(7vh + env(safe-area-inset-top,0px)) auto calc(8
     adm.innerHTML="";bar.innerHTML="";bar.className="";
     if(!isAdmin)return;
     if(!editing){
-      var b=document.createElement("button");b.className="g";b.textContent="⚙️ 後台編輯";
-      b.onclick=function(){editing=true;render()};
-      adm.appendChild(b);
+      var b=document.createElement("button");b.className="g";b.type="button";b.textContent="後台編輯";
+      b.onclick=function(){draft=clone(saved);editing=true;render()};
+      var o=document.createElement("button");o.className="g";o.type="button";o.textContent="登出";o.style.marginLeft="8px";
+      o.onclick=function(){sessionStorage.removeItem(PW_KEY);pw=null;isAdmin=false;history.replaceState(null,"",location.pathname);render()};
+      adm.appendChild(b);adm.appendChild(o);
       return;
     }
-    var n=changed();
+    var n=diff().length;
     bar.className="bar";
-    bar.innerHTML='<span>'+(busy?'發布中…':(n?'有 '+n+' 個時段尚未儲存':'點選各時段的狀態來調整'))+'</span><button class="g" type="button">取消</button><button type="button">'+(art?'儲存並發布':'下載更新檔')+'</button>';
+    bar.innerHTML='<span>'+(busy?'儲存中…':(n?'有 '+n+' 個時段尚未儲存':'點選各時段的狀態來調整'))+'</span><button class="g" type="button">取消</button><button type="button">儲存並發布</button>';
     var bs=bar.querySelectorAll("button");
-    bs[0].onclick=function(){draft=JSON.parse(JSON.stringify(saved));editing=false;render()};
+    bs[0].onclick=function(){draft=clone(saved);editing=false;render()};
     bs[1].onclick=save;
+    bs[1].disabled=busy||!n;
   }
-  function buildHtml(){
-    var head=[].filter.call(document.head.children,function(e){return e.hasAttribute("data-k")}).map(function(e){return e.outerHTML}).join("\n");
-    var body=document.body.cloneNode(true);
-    ["tabs","list","adm","adminbar"].forEach(function(id){var e=body.querySelector("#"+id);if(e){e.innerHTML="";e.className=id==="tabs"?"tabs":id==="list"?"list":id==="adm"?"adm":""}});
-    [].forEach.call(body.querySelectorAll("script"),function(s){s.remove()});
-    var data=JSON.stringify(draft).replace(/</g,"\\u003c");
-    var app=$("app").textContent;
-    return "<!DOCTYPE html>\n<html lang=\"zh-Hant\"><head>"+head+"</head><body>"+body.innerHTML+
-      "<script id=\"state\" type=\"application/json\">"+data+"<\/script><script id=\"app\">"+app+"<\/script></body></html>";
-  }
-  function download(){
-    var blob=new Blob([buildHtml()],{type:"text/html;charset=utf-8"});
-    var a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);a.download="index.html";
-    document.body.appendChild(a);a.click();a.remove();
-    setTimeout(function(){URL.revokeObjectURL(a.href)},1000);
-    saved=JSON.parse(JSON.stringify(draft));
-    $("sub").textContent="已下載 index.html，上傳到 GitHub 取代原檔即可更新網站";
-    render();
+  function load(){
+    return fetch("/api/status",{cache:"no-store"}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(data){
+      saved=data;loaded=true;
+      if(!editing)draft=clone(saved);
+      render();
+    }).catch(function(){if(!loaded)setSub("資料載入失敗，請重新整理")});
   }
   function save(){
-    if(busy||!changed())return;
-    if(!art)return download();
+    var changes=diff();
+    if(busy||!changes.length)return;
     busy=true;renderAdmin();
-    art.publish(buildHtml()).then(function(){
-      busy=false;
-    }).catch(function(e){
-      busy=false;
-      var c=e&&e.code;
-      if(c==="conflict")return;
-      $("sub").textContent=(c==="not_writer"||c==="not_granted")?"你沒有編輯權限":"儲存失敗，請稍後再試";
-      renderAdmin();
-    });
+    fetch("/api/status",{method:"PUT",headers:{"Content-Type":"application/json","x-admin-password":pw},body:JSON.stringify({changes:changes})})
+      .then(function(r){
+        if(r.status===401){sessionStorage.removeItem(PW_KEY);throw "auth"}
+        if(!r.ok)throw "fail";
+        return r.json();
+      }).then(function(data){
+        busy=false;saved=data;draft=clone(saved);editing=false;
+        setSub("已儲存，所有人都會看到最新狀態");render();
+        setTimeout(function(){setSub()},4000);
+      }).catch(function(e){
+        busy=false;
+        setSub(e==="auth"?"密碼錯誤或已失效，請重新登入":"儲存失敗，請稍後再試");
+        if(e==="auth"){isAdmin=false;editing=false;pw=null;draft=clone(saved);render()}else renderAdmin();
+      });
+  }
+  function login(p){
+    return fetch("/api/status",{method:"POST",headers:{"x-admin-password":p}}).then(function(r){
+      if(r.ok){pw=p;sessionStorage.setItem(PW_KEY,p);isAdmin=true;editing=true;draft=clone(saved);setSub();render();return}
+      sessionStorage.removeItem(PW_KEY);
+      setSub(r.status===503?"尚未設定後台密碼 ADMIN_PASSWORD":"密碼錯誤");
+    }).catch(function(){setSub("登入失敗，請稍後再試")});
   }
   function checkHash(){
-    if(location.hash==="#admin"&&!isAdmin){isAdmin=true;editing=true;render()}
+    if(location.hash!=="#admin"||isAdmin)return;
+    var stored=sessionStorage.getItem(PW_KEY);
+    if(stored)return login(stored);
+    var p=window.prompt("請輸入後台密碼");
+    if(p)login(p);
   }
   window.addEventListener("hashchange",checkHash);
   render();
-  checkHash();
-  (async function(){
-    try{
-      if(typeof claude==="undefined")return;
-      var u=await claude.use("user");
-      if(u&&u.canEdit()){
-        art=await claude.use("artifact");
-        if(art){isAdmin=true;renderAdmin()}
-      }
-    }catch(e){}
-  })();
+  load().then(checkHash);
+  setInterval(function(){if(!editing&&!document.hidden)load()},30000);
+  document.addEventListener("visibilitychange",function(){if(!document.hidden&&!editing)load()});
 })();
 </script>
 </body>
